@@ -101,7 +101,7 @@ class Stynthesis(nn.Module):
             SynthesisBlock(8, 4, w_dim),
         ])
     def forward(self, w):
-        x = self.blocks[0].const
+        x = self.blocks[0].const.expand(w.size(0), -1, -1, -1)
         for block in self.blocks[1:]:
             if isinstance(block, nn.Upsample):
                 x = block(x)
@@ -231,10 +231,7 @@ class Discriminator(nn.Module):
         x = self.conv7(x)
         x = x.view(x.size(0), -1)
         out = self.fc(x)
-        print(c.shape)
         c_embed = self.cond_proj(c)
-        print(x.shape)
-        print(c_embed.shape)
         projection = torch.sum(x*c_embed, dim=1, keepdim=True)
         out += projection
         return out

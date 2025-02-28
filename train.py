@@ -34,7 +34,6 @@ optim_g = optim.Adam(G.parameters(), lr=0.001)
 optim_d = optim.Adam(D.parameters(), lr=0.002)
 
 global_step = 0
-
 for epoch in range(epochs):
     for real_images, real_labels in dataloader:
         z = torch.randn(batch_size, 512)
