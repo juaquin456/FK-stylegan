@@ -142,8 +142,9 @@ class MinibatchStdDev(nn.Module):
         group_size = min(self.group_size, batch_size)
         y = x.view(group_size, -1, C, H, W)
         y = y - y.mean(dim=0, keepdim=True)
-        y = torch.sqrt(y.pow(2).mean(dim=0) + self.eps)
+        y = torch.sqrt(y.square().mean(dim=0) + self.eps)
         y = y.mean(dim=[1, 2, 3], keepdim=True)
+        y = y.mean(dim=0, keepdim=True)
         y = y.repeat(batch_size, 1, H, W)
         return torch.cat([x, y], dim=1)
 

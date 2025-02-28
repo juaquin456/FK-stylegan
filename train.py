@@ -20,13 +20,13 @@ def sample_labels(b_sz, c_dim):
     return labels
 
 epochs = 10000
-batch_size = 64
+batch_size = 64 
 data_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
 ])
 ds = PokeData("/home/juaquin/Documents/playground/cds/images", transform=data_transform)
-dataloader = DataLoader(ds, batch_size=64, shuffle=True)
+dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
 G = Generator(512, 18)
 D = Discriminator(c_dim=18)
