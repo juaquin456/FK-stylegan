@@ -139,7 +139,12 @@ class MinibatchStdDev(nn.Module):
 
     def forward(self, x):
         batch_size, C, H, W = x.shape
-        group_size = min(self.group_size, batch_size)
+        if batch_size % self.group_size != 0:
+            group_size = batch_size
+        else:
+            group_size = self.group_size
+
+
         y = x.view(group_size, -1, C, H, W)
         y = y - y.mean(dim=0, keepdim=True)
         y = torch.sqrt(y.square().mean(dim=0) + self.eps)
