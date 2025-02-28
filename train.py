@@ -10,9 +10,10 @@ from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def sample_labels(b_sz, c_dim):
-    labels = torch.zeros(b_sz, c_dim)
+    labels = torch.zeros(b_sz, c_dim, device=device)
     for i in range(b_sz):
         num_active = np.random.randint(1, 3)
         active_classes = np.random.choice(c_dim, num_active, replace=False)
@@ -28,15 +29,16 @@ data_transform = transforms.Compose([
 ds = PokeData("/home/juaquin/Documents/playground/cds/images", transform=data_transform)
 dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
-G = Generator(512, 18)
-D = Discriminator(c_dim=18)
+G = Generator(512, 18).to(device)
+D = Discriminator(c_dim=18).to(device)
 optim_g = optim.Adam(G.parameters(), lr=0.001)
 optim_d = optim.Adam(D.parameters(), lr=0.002)
 
 global_step = 0
 for epoch in range(epochs):
     for real_images, real_labels in dataloader:
-        z = torch.randn(batch_size, 512)
+        real_images, real_labels = real_images.to(device), real_labels.to(device)
+        z = torch.randn(batch_size, 512, device=device)
         fake_labels = sample_labels(batch_size, 18)
         fake_images = G(z, fake_labels)
 
@@ -50,7 +52,7 @@ for epoch in range(epochs):
 
         # GENERATOR
         optim_g.zero_grad()
-        z = torch.randn(batch_size, 512)
+        z = torch.randn(batch_size, 512, device=device)
         fake_images = G(z, fake_labels)
         fake_logits = D(fake_images, fake_labels)
         loss_g = g_loss(fake_logits)
