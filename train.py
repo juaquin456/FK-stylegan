@@ -29,6 +29,7 @@ data_transform = transforms.Compose([
     transforms.RandomRotation(10),
 ])
 ds = PokeData(sys.argv[1], transform=data_transform)
+print(len(ds), flush=True)
 dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
 G = Generator(512, 18).to(device)
