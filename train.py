@@ -1,6 +1,7 @@
 from net import Generator, Discriminator
 from dataset import PokeData
 from loss import d_loss, g_loss, r1_reg
+import sys
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device, flush=True)
 
 def sample_labels(b_sz, c_dim):
     labels = torch.zeros(b_sz, c_dim, device=device)
@@ -26,7 +28,7 @@ data_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
 ])
-ds = PokeData("/home/juaquin/Documents/playground/cds/images", transform=data_transform)
+ds = PokeData(sys.argv[1], transform=data_transform)
 dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
 G = Generator(512, 18).to(device)
@@ -59,8 +61,8 @@ for epoch in range(epochs):
         loss_g.backward()
         optim_g.step()
 
-        writer.add_scalar("Loss/Discriminator", d_loss.item(), global_step)
-        writer.add_scalar("Loss/Generator", g_loss.item(), global_step)
+        writer.add_scalar("Loss/Discriminator", loss_d.item(), global_step)
+        writer.add_scalar("Loss/Generator", loss_g.item(), global_step)
 
         global_step += 1
     if epoch % 10 == 0:
