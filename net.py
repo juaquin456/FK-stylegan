@@ -19,7 +19,7 @@ class Mapping(nn.Module):
         self.c_mpl = nn.Sequential(nn.Linear(c_dim, z_dim), nn.LeakyReLU(inplace=True))
         self.z_mpl = nn.Sequential(nn.Linear(z_dim, z_dim), nn.LeakyReLU(inplace=True))
         for _ in range(n_layers):
-            layers.extend([nn.Linear(z_dim, z_dim), nn.LeakyReLU(0.2, inplace=True)])
+            layers.extend([nn.Linear(z_dim, z_dim), nn.LeakyReLU(0.2, inplace=True), PixelNorm()])
         self.mapping = nn.Sequential(*layers)
     def forward(self, z, c):
         z = self.pixel_norm(z)
@@ -42,9 +42,20 @@ class AdaIN(nn.Module):
         x_norm = self.norm(x)
         return ys*x_norm + yb
 
-class SynthesisBlock(nn.Module):
-    def __init__(self, in_chan, out_chan, w_dim, is_const = False):
+class UP(nn.Module):
+    def __init__(self, in_ch, out_ch):
         super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.conv = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+
+    def forward(self, x):
+        x = self.upsample(x)
+        x = self.conv(x)
+        return x
+class SynthesisBlock(nn.Module):
+    def __init__(self, in_chan, out_chan, w_dim, is_const = False, upsample=True):
+        super().__init__()
+        self.upsample = UP(in_chan, out_chan) if upsample else None
         self.in_chan = in_chan
         self.out_chan = out_chan
         self.w_dim = w_dim
@@ -55,8 +66,9 @@ class SynthesisBlock(nn.Module):
         self.noise_scale = nn.Parameter(torch.zeros(1, out_chan, 1, 1))
 
     def forward(self, x, w):
+        if self.upsample:
+            x = self.upsample(x)
         noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device)
-        
         x = self.conv(x)
         x = x + self.noise_scale * noise
         x = self.AdaIN(x, w)
@@ -67,43 +79,37 @@ class Stynthesis(nn.Module):
         super().__init__()
         self.blocks = nn.ModuleList([
             #4
-            SynthesisBlock(512, 512, w_dim, True),
-            SynthesisBlock(512, 256, w_dim),
+            SynthesisBlock(512, 512, w_dim, True, upsample=False),
+            SynthesisBlock(512, 256, w_dim, upsample=False),
             
             #8
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(256, 256, w_dim),
-            SynthesisBlock(256, 128, w_dim),
+            SynthesisBlock(256, 128, w_dim, upsample=False),
 
             #16
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(128, 128, w_dim),
-            SynthesisBlock(128, 64, w_dim),
+            SynthesisBlock(128, 64, w_dim, upsample=False),
 
             #32
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(64, 64, w_dim),
-            SynthesisBlock(64, 32, w_dim),
+            SynthesisBlock(64, 32, w_dim, upsample=False),
 
             #64
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(32, 32, w_dim),
-            SynthesisBlock(32, 16, w_dim),
+            SynthesisBlock(32, 16, w_dim, upsample=False),
 
             #128
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(16, 16, w_dim),
-            SynthesisBlock(16, 8, w_dim),
+            SynthesisBlock(16, 8, w_dim, upsample=False),
 
             #256
-            nn.Upsample(scale_factor=2),
             SynthesisBlock(8, 8, w_dim),
-            SynthesisBlock(8, 4, w_dim),
+            SynthesisBlock(8, 4, w_dim, upsample=False),
         ])
     def forward(self, w):
         x = self.blocks[0].const.expand(w.size(0), -1, -1, -1)
         for block in self.blocks[1:]:
-            if isinstance(block, nn.Upsample):
+            if isinstance(block, UP):
                 x = block(x)
             else:
                 x = block(x, w)
