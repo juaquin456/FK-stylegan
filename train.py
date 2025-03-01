@@ -38,7 +38,7 @@ D = Discriminator(c_dim=18).to(device)
 optim_g = optim.Adam(G.parameters(), lr=0.0001, betas=(0.0, 0.99))
 optim_d = optim.Adam(D.parameters(), lr=0.0004, betas=(0.0, 0.99))
 
-
+current_res = 4
 global_step = 0
 pl_mean = torch.zeros(1, device=device)
 for epoch in range(epochs):
@@ -47,6 +47,9 @@ for epoch in range(epochs):
         z = torch.randn(batch_size, 512, device=device)
         fake_labels = sample_labels(batch_size, 18)
         fake_images, _ = G(z, fake_labels)
+        print(fake_images.shape)
+        if current_res < 256:
+            fake_images = torch.nn.functional.interpolate(fake_images, scale_factor=256 // current_res)
 
         real_logits = D(real_images, real_labels)
         fake_logits = D(fake_images.detach(), fake_labels)
@@ -60,6 +63,8 @@ for epoch in range(epochs):
         optim_g.zero_grad()
         z = torch.randn(batch_size, 512, device=device)
         fake_images, w = G(z, fake_labels)
+        if current_res < 256:
+            fake_images = torch.nn.functional.interpolate(fake_images, scale_factor=256 // current_res)
         fake_labels = sample_labels(batch_size, 18)
         fake_logits = D(fake_images, fake_labels)
 
@@ -75,6 +80,11 @@ for epoch in range(epochs):
         writer.add_scalar("Loss/Generator", loss_g.item(), global_step)
 
         global_step += 1
+
+        if global_step % 10000 == 0 and current_res < 256:
+            G.grow()
+            current_res *= 2
+            print("current_res:", current_res, flush=True)
     if epoch % 10 == 0:
         torch.save(G.state_dict(), f"./weights/{epoch}.pth")
 writer.close()

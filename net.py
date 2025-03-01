@@ -53,9 +53,8 @@ class UP(nn.Module):
         x = self.conv(x)
         return x
 class SynthesisBlock(nn.Module):
-    def __init__(self, in_chan, out_chan, w_dim, is_const = False, upsample=True):
+    def __init__(self, in_chan, out_chan, w_dim, is_const = False):
         super().__init__()
-        self.upsample = UP(in_chan, out_chan) if upsample else None
         self.in_chan = in_chan
         self.out_chan = out_chan
         self.w_dim = w_dim
@@ -66,54 +65,11 @@ class SynthesisBlock(nn.Module):
         self.noise_scale = nn.Parameter(torch.zeros(1, out_chan, 1, 1))
 
     def forward(self, x, w):
-        if self.upsample:
-            x = self.upsample(x)
         noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device)
         x = self.conv(x)
         x = x + self.noise_scale * noise
         x = self.AdaIN(x, w)
         return F.leaky_relu(x, 0.2)
-
-class Stynthesis(nn.Module):
-    def __init__(self, w_dim):
-        super().__init__()
-        self.blocks = nn.ModuleList([
-            #4
-            SynthesisBlock(512, 512, w_dim, True, upsample=False),
-            SynthesisBlock(512, 256, w_dim, upsample=False),
-            
-            #8
-            SynthesisBlock(256, 256, w_dim),
-            SynthesisBlock(256, 128, w_dim, upsample=False),
-
-            #16
-            SynthesisBlock(128, 128, w_dim),
-            SynthesisBlock(128, 64, w_dim, upsample=False),
-
-            #32
-            SynthesisBlock(64, 64, w_dim),
-            SynthesisBlock(64, 32, w_dim, upsample=False),
-
-            #64
-            SynthesisBlock(32, 32, w_dim),
-            SynthesisBlock(32, 16, w_dim, upsample=False),
-
-            #128
-            SynthesisBlock(16, 16, w_dim),
-            SynthesisBlock(16, 8, w_dim, upsample=False),
-
-            #256
-            SynthesisBlock(8, 8, w_dim),
-            SynthesisBlock(8, 4, w_dim, upsample=False),
-        ])
-    def forward(self, w):
-        x = self.blocks[0].const.expand(w.size(0), -1, -1, -1)
-        for block in self.blocks[1:]:
-            if isinstance(block, UP):
-                x = block(x)
-            else:
-                x = block(x, w)
-        return x
 
 class ToRGB(nn.Module):
     def __init__(self, in_chan):
@@ -123,6 +79,39 @@ class ToRGB(nn.Module):
         logits = self.conv(logits)
         return torch.tanh(logits)
 
+
+class Stynthesis(nn.Module):
+    def __init__(self, w_dim):
+        super().__init__()
+        self.w_dim = w_dim
+        self.cur_res = 4
+        self.blocks = nn.ModuleList([
+            SynthesisBlock(512, 512, w_dim, True),
+            SynthesisBlock(512, 512, w_dim),
+       ])
+        self.to_rgb = ToRGB(512)
+    
+    def grow(self):
+        self.cur_res *= 2
+        in_chan = self.blocks[-1].out_chan
+        out_chan = in_chan // 2
+
+        self.blocks.append(UP(in_chan, out_chan))
+
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.wdim))
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.wdim))
+
+        self.to_rgb = ToRGB(out_chan)
+
+    def forward(self, w):
+        x = self.blocks[0].const.expand(w.size(0), -1, -1, -1)
+        for block in self.blocks[1:]:
+            if isinstance(block, UP):
+                x = block(x)
+            else:
+                x = block(x, w)
+        return self.to_rgb(x) 
+
 class Generator(nn.Module):
     def __init__(self, z_dim, c_dim):
         super().__init__()
@@ -130,12 +119,11 @@ class Generator(nn.Module):
         self.c_dim = c_dim
         self.mapping = Mapping(z_dim, c_dim, 8)
         self.synt = Stynthesis(z_dim)
-        self.to_rgb = ToRGB(4)    
 
     def forward(self, z, c):
         w = self.mapping(z, c)
         img = self.synt(w)
-        return self.to_rgb(img), w
+        return img, w
 
 class MinibatchStdDev(nn.Module):
     def __init__(self, group_size=4, eps=1e-8):
@@ -150,7 +138,6 @@ class MinibatchStdDev(nn.Module):
         else:
             group_size = self.group_size
         num_groups = batch_size // group_size
-
         y = x.view(group_size, num_groups, C, H, W)
         y = y - y.mean(dim=0, keepdim=True)
         y = torch.sqrt(y.square().mean(dim=0) + self.eps)
@@ -159,91 +146,52 @@ class MinibatchStdDev(nn.Module):
         y = y.repeat(batch_size, 1, H, W)
         return torch.cat([x, y], dim=1)
 
+class DiscriminatorBlock(nn.Module):
+    def __init__(self, in_chan, out_chan):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_chan, out_chan, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.downsample = nn.Sequential(
+            nn.Conv2d(out_chan, out_chan, kernel_size=3, padding=1, stride=2),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+    
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.downsample(x)
+        return x 
+
 class Discriminator(nn.Module):
     def __init__(self, base_channels=64, c_dim = 10):
         super().__init__()
-        # 128
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(3, base_channels, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
+        self.blocks = nn.Sequential(
+            #256
+            DiscriminatorBlock(3, base_channels),
+            #128
+            DiscriminatorBlock(base_channels, base_channels*2),
+            #64
+            DiscriminatorBlock(base_channels*2, base_channels*4),
+            #32
+            DiscriminatorBlock(base_channels*4, base_channels*8),
+            #16
+            DiscriminatorBlock(base_channels*8, base_channels*16),
+            #8
+            DiscriminatorBlock(base_channels*16, base_channels*32),
+            MinibatchStdDev(),
+            #4
+            DiscriminatorBlock(base_channels*32+1, base_channels*64),
+            nn.AdaptiveAvgPool2d(1)
         )
-        self.down1 = nn.Sequential(
-            nn.Conv2d(base_channels, base_channels, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # 64x64
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(base_channels, base_channels * 2, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down2 = nn.Sequential(
-            nn.Conv2d(base_channels * 2, base_channels * 2, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # 32x32
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(base_channels * 2, base_channels * 4, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down3 = nn.Sequential(
-            nn.Conv2d(base_channels * 4, base_channels * 4, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # 16x16
-        self.conv4 = nn.Sequential(
-            nn.Conv2d(base_channels * 4, base_channels * 8, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down4 = nn.Sequential(
-            nn.Conv2d(base_channels * 8, base_channels * 8, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # 8x8
-        self.conv5 = nn.Sequential(
-            nn.Conv2d(base_channels * 8, base_channels * 16, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down5 = nn.Sequential(
-            nn.Conv2d(base_channels * 16, base_channels * 16, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        # 4x4
-        self.conv6 = nn.Sequential(
-            nn.Conv2d(base_channels * 16, base_channels * 32, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.down6 = nn.Sequential(
-            nn.Conv2d(base_channels * 32, base_channels * 32, kernel_size=3, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.stddev = MinibatchStdDev()
-        self.conv7 = nn.Sequential(
-            nn.Conv2d(base_channels * 32 + 1, base_channels * 64, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(base_channels * 64, base_channels * 64, kernel_size=4, padding=0),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.fc = nn.Linear(base_channels * 64, 1)
-        self.cond_proj = nn.Linear(c_dim, base_channels*64)
+        self.fc = nn.Linear(base_channels*64, 1)
+        self.c_proj = nn.Linear(c_dim, base_channels*64)
     def forward(self, x, c):
         # x: [batch, 3, 256, 256]
-        x = self.conv1(x)
-        x = self.down1(x)    # 128x128
-        x = self.conv2(x)
-        x = self.down2(x)    # 64x64
-        x = self.conv3(x)
-        x = self.down3(x)    # 32x32
-        x = self.conv4(x)
-        x = self.down4(x)    # 16x16
-        x = self.conv5(x)
-        x = self.down5(x)    # 8x8
-        x = self.conv6(x)
-        x = self.down6(x)    # 4x4
-        x = self.stddev(x)
-        x = self.conv7(x)
+        x = self.blocks(x)
         x = x.view(x.size(0), -1)
         out = self.fc(x)
-        c_embed = self.cond_proj(c)
+        c_embed = self.c_proj(c)
         projection = torch.sum(x*c_embed, dim=1, keepdim=True)
         out += projection
         return out
@@ -253,4 +201,6 @@ if __name__ == "__main__":
     t = torch.randn((1, 512))
     c = torch.zeros((1, 10))
     D = Discriminator(c_dim=10)
-    print(D(G(t, c), c))
+    images, w = G(t, c)
+    images = F.interpolate(images, scale_factor=64)
+    print(D(images, c), c)

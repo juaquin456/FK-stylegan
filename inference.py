@@ -7,7 +7,7 @@ G = Generator(512, 18)
 z = torch.randn((1, 512))
 c = torch.zeros(18)
 c[0] = 1
-#G.load_state_dict(torch.load("100.pth", weights_only=True, map_location="cpu"))
+G.load_state_dict(torch.load("50.pth", weights_only=True, map_location="cpu"))
 G.eval()
 
 img, _ = G(z, c)
