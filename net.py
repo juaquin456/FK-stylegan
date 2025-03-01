@@ -98,8 +98,8 @@ class Stynthesis(nn.Module):
 
         self.blocks.append(UP(in_chan, out_chan))
 
-        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.wdim))
-        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.wdim))
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim))
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim))
 
         self.to_rgb = ToRGB(out_chan)
 
@@ -124,6 +124,8 @@ class Generator(nn.Module):
         w = self.mapping(z, c)
         img = self.synt(w)
         return img, w
+    def grow(self):
+        self.synt.grow()
 
 class MinibatchStdDev(nn.Module):
     def __init__(self, group_size=4, eps=1e-8):
