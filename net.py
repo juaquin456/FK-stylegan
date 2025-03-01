@@ -129,7 +129,7 @@ class Generator(nn.Module):
     def forward(self, z, c):
         w = self.mapping(z, c)
         img = self.synt(w)
-        return self.to_rgb(img)
+        return self.to_rgb(img), w
 
 class MinibatchStdDev(nn.Module):
     def __init__(self, group_size=4, eps=1e-8):
@@ -143,9 +143,9 @@ class MinibatchStdDev(nn.Module):
             group_size = batch_size
         else:
             group_size = self.group_size
+        num_groups = batch_size // group_size
 
-
-        y = x.view(group_size, -1, C, H, W)
+        y = x.view(group_size, num_groups, C, H, W)
         y = y - y.mean(dim=0, keepdim=True)
         y = torch.sqrt(y.square().mean(dim=0) + self.eps)
         y = y.mean(dim=[1, 2, 3], keepdim=True)

@@ -1,6 +1,6 @@
 from net import Generator, Discriminator
 from dataset import PokeData
-from loss import d_loss, g_loss, r1_reg
+from loss import d_loss, g_loss, r1_reg, path_length_regularization
 import sys
 
 import numpy as np
@@ -23,7 +23,7 @@ def sample_labels(b_sz, c_dim):
     return labels
 
 epochs = 10000
-batch_size = 64 
+batch_size = 16 
 data_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
@@ -34,16 +34,19 @@ dataloader = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
 G = Generator(512, 18).to(device)
 D = Discriminator(c_dim=18).to(device)
-optim_g = optim.Adam(G.parameters(), lr=0.001)
-optim_d = optim.Adam(D.parameters(), lr=0.002)
+
+optim_g = optim.Adam(G.parameters(), lr=0.0001, betas=(0.0, 0.99))
+optim_d = optim.Adam(D.parameters(), lr=0.0004, betas=(0.0, 0.99))
+
 
 global_step = 0
+pl_mean = torch.zeros(1, device=device)
 for epoch in range(epochs):
     for real_images, real_labels in dataloader:
         real_images, real_labels = real_images.to(device), real_labels.to(device)
         z = torch.randn(batch_size, 512, device=device)
         fake_labels = sample_labels(batch_size, 18)
-        fake_images = G(z, fake_labels)
+        fake_images, _ = G(z, fake_labels)
 
         real_logits = D(real_images, real_labels)
         fake_logits = D(fake_images.detach(), fake_labels)
@@ -56,9 +59,15 @@ for epoch in range(epochs):
         # GENERATOR
         optim_g.zero_grad()
         z = torch.randn(batch_size, 512, device=device)
-        fake_images = G(z, fake_labels)
+        fake_images, w = G(z, fake_labels)
+        fake_labels = sample_labels(batch_size, 18)
         fake_logits = D(fake_images, fake_labels)
-        loss_g = g_loss(fake_logits)
+
+        pl_penalty, pl_mean, path_lengths = path_length_regularization(w, fake_images, pl_mean)
+
+        lambda_pl = 2.0
+        loss_g = g_loss(fake_logits) + lambda_pl * pl_penalty
+
         loss_g.backward()
         optim_g.step()
 
