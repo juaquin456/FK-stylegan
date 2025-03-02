@@ -63,7 +63,7 @@ class SynthesisBlock(nn.Module):
             self.const = nn.Parameter(torch.randn(1, in_chan, 4, 4))
         self.conv = nn.Conv2d(in_chan, out_chan, 3, padding=1)
         self.AdaIN = AdaIN(out_chan, w_dim)
-        self.noise_scale = nn.Parameter(torch.zeros(1, out_chan, 1, 1))
+        self.noise_scale = nn.Parameter(torch.ones(1, out_chan, 1, 1) * 0.1)
 
     def forward(self, x, w):
         noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device)
@@ -152,10 +152,7 @@ class MinibatchStdDev(nn.Module):
 class DiscriminatorBlock(nn.Module):
     def __init__(self, in_chan, out_chan):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_chan, out_chan, 3, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-        )
+        self.conv = nn.utils.spectral_norm(nn.Conv2d(in_chan, out_chan, 3, padding=1))
         self.downsample = nn.Sequential(
             nn.Conv2d(out_chan, out_chan, kernel_size=3, padding=1, stride=2),
             nn.LeakyReLU(0.2, inplace=True),
