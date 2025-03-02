@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -96,12 +97,12 @@ class Stynthesis(nn.Module):
         in_chan = self.blocks[-1].out_chan
         out_chan = in_chan // 2
 
-        self.blocks.append(UP(in_chan, out_chan))
+        self.blocks.append(UP(in_chan, out_chan).to(device))
 
-        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim))
-        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim))
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim).to(device))
+        self.blocks.append(SynthesisBlock(out_chan, out_chan, self.w_dim).to(device))
 
-        self.to_rgb = ToRGB(out_chan)
+        self.to_rgb = ToRGB(out_chan).to(device)
 
     def forward(self, w):
         x = self.blocks[0].const.expand(w.size(0), -1, -1, -1)

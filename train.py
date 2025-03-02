@@ -47,7 +47,7 @@ for epoch in range(epochs):
         z = torch.randn(batch_size, 512, device=device)
         fake_labels = sample_labels(batch_size, 18)
         fake_images, _ = G(z, fake_labels)
-        print(fake_images.shape)
+        
         if current_res < 256:
             fake_images = torch.nn.functional.interpolate(fake_images, scale_factor=256 // current_res)
 
