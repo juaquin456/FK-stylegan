@@ -47,14 +47,14 @@ for epoch in range(epochs):
         z = torch.randn(batch_size, 512, device=device)
         fake_labels = sample_labels(batch_size, 18)
         fake_images, _ = G(z, fake_labels)
-        
+
         if current_res < 256:
             fake_images = torch.nn.functional.interpolate(fake_images, scale_factor=256 // current_res)
-
+        real_images.requires_grad_(True)
         real_logits = D(real_images, real_labels)
         fake_logits = D(fake_images.detach(), fake_labels)
 
-        loss_d = d_loss(real_logits, fake_logits) + r1_reg(D, real_images, real_labels)
+        loss_d = d_loss(real_logits, fake_logits) + r1_reg(real_images, real_logits)
         optim_d.zero_grad()
         loss_d.backward()
         optim_d.step()
