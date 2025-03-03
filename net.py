@@ -16,7 +16,7 @@ class Mapping(nn.Module):
     def __init__(self, z_dim, c_dim, n_layers):
         super().__init__()
         self.pixel_norm = PixelNorm()
-        layers = []
+        layers = [nn.Linear(2*z_dim, z_dim), nn.LeakyReLU(0.2, inplace=True), PixelNorm()]
         self.c_mpl = nn.Sequential(nn.Linear(c_dim, z_dim), nn.LeakyReLU(inplace=True))
         self.z_mpl = nn.Sequential(nn.Linear(z_dim, z_dim), nn.LeakyReLU(inplace=True))
         for _ in range(n_layers):
@@ -26,7 +26,7 @@ class Mapping(nn.Module):
         z = self.pixel_norm(z)
         z = self.z_mpl(z)
         c = self.c_mpl(c)
-        z = z + c
+        z = torch.cat([z, c], dim=1) 
         return self.mapping(z)
 
 class AdaIN(nn.Module):
@@ -164,7 +164,7 @@ class DiscriminatorBlock(nn.Module):
         return x 
 
 class Discriminator(nn.Module):
-    def __init__(self, base_channels=64, c_dim = 10):
+    def __init__(self, base_channels=8, c_dim = 10):
         super().__init__()
         self.blocks = nn.Sequential(
             #256
